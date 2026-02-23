@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.1 (2026-02-23)
+
+### Bug Fixes
+
+- Update type hints and improve code clarity in parser and tests
+  ([`305f64d`](https://github.com/IgnatG/langcore-rag/commit/305f64d15e23d5e69a9eb8364838320dac59853e))
+
+
 ## v1.0.0 (2026-02-23)
 
 - Initial Release
