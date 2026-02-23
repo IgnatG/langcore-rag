@@ -1,8 +1,8 @@
 # LangCore RAG — Query Parsing for Hybrid Retrieval
 
-A plugin for [LangExtract](https://github.com/google/langextract) that parses natural-language queries into **semantic terms** (for vector search) and **structured metadata filters** (for database / index filtering), enabling hybrid RAG retrieval pipelines. Inspired by [LangStruct](https://github.com/langstruct/langstruct)'s `.query()` method.
+A plugin for [LangCore](https://github.com/google/langcore) that parses natural-language queries into **semantic terms** (for vector search) and **structured metadata filters** (for database / index filtering), enabling hybrid RAG retrieval pipelines. Inspired by [LangStruct](https://github.com/langstruct/langstruct)'s `.query()` method.
 
-> **Note**: This is a third-party plugin for LangExtract. For the main LangExtract library, visit [google/langextract](https://github.com/google/langextract).
+> **Note**: This is a third-party plugin for LangCore. For the main LangCore library, visit [google/langcore](https://github.com/google/langcore).
 
 ## Installation
 

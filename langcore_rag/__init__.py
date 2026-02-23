@@ -1,4 +1,4 @@
-"""langcore-rag — RAG query parsing for LangExtract.
+"""langcore-rag — RAG query parsing for LangCore.
 
 Decomposes natural-language queries into semantic terms and
 structured metadata filters using an LLM, enabling hybrid
