@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [
-    "langcore>=1.1.0",
+    "langcore",
     "litellm>=1.81.13",
     "pydantic>=2.12.0",
 ]
