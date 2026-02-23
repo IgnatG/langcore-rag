@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.3 (2026-02-23)
+
+### Bug Fixes
+
+- Updated the folder structure
+  ([`6206dcc`](https://github.com/IgnatG/langcore-rag/commit/6206dcc74fcc661d91bf31a673823b49560f68d1))
+
+
 ## v1.0.2 (2026-02-23)
 
 ### Bug Fixes
