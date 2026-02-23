@@ -6,10 +6,8 @@ access is required.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import FrozenInstanceError
-from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,7 +22,6 @@ from langcore_rag.parser import (
     _python_type_label,
     _to_parsed_query,
 )
-
 
 # ------------------------------------------------------------------
 # Test schemas
@@ -57,8 +54,8 @@ class MixedModel(BaseModel):
 class OptionalFields(BaseModel):
     """Model with optional fields."""
 
-    title: Optional[str] = Field(default=None, description="Title")
-    count: Optional[int] = Field(default=None, description="Count")
+    title: str | None = Field(default=None, description="Title")
+    count: int | None = Field(default=None, description="Count")
 
 
 # ------------------------------------------------------------------
@@ -150,13 +147,13 @@ class TestTypeHelpers:
 
     def test_is_filterable_optional(self) -> None:
         """Optional[int] IS filterable."""
-        assert _is_filterable(Optional[int]) is True
+        assert _is_filterable(int | None) is True
 
     def test_is_filterable_optional_non_filterable(
         self,
     ) -> None:
         """Optional[list[str]] is NOT filterable."""
-        assert _is_filterable(Optional[list[str]]) is False
+        assert _is_filterable(list[str] | None) is False
 
 
 # ------------------------------------------------------------------

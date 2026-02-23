@@ -15,11 +15,13 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, get_args, get_origin
+from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 import litellm
 from pydantic import BaseModel
-from pydantic.fields import FieldInfo
+
+if TYPE_CHECKING:
+    from pydantic.fields import FieldInfo
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ class ParsedQuery:
         structured_filters: Metadata filters keyed by schema
             field name.  Values may use MongoDB-style operators
             such as ``$gte``, ``$lte``, ``$eq``, ``$in``.
-        confidence: A 0.0 – 1.0 score indicating how confident
+        confidence: A 0.0 - 1.0 score indicating how confident
             the parser is in the decomposition.
         explanation: Human-readable rationale for the parse.
     """
@@ -146,7 +148,7 @@ def _describe_fields(schema: type[BaseModel]) -> str:
     and its description (if present).
     """
     lines: list[str] = []
-    model_fields: dict[str, FieldInfo] = schema.model_fields
+    model_fields: dict[str, FieldInfo] = schema.model_fields  # type: ignore[type-arg]
 
     for name, info in model_fields.items():
         annotation = info.annotation
@@ -176,9 +178,9 @@ Generation) system.
 Given a natural-language query and a list of filterable metadata \
 fields, your job is to split the query into:
 
-1. **semantic_terms** – free-text keywords / phrases best suited \
+1. **semantic_terms** - free-text keywords / phrases best suited \
 for vector similarity search.
-2. **structured_filters** – precise metadata filters using the \
+2. **structured_filters** - precise metadata filters using the \
 fields listed below.  Use MongoDB-style operators where \
 appropriate: $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin.
 
@@ -268,7 +270,7 @@ def _extract_json(text: str) -> dict[str, Any]:
             pass
 
     raise ValueError(
-        f"Could not extract a JSON object from LLM response: " f"{text[:200]!r}"
+        f"Could not extract a JSON object from LLM response: {text[:200]!r}"
     )
 
 
@@ -367,8 +369,7 @@ class QueryParser:
         """
         if not (isinstance(schema, type) and issubclass(schema, BaseModel)):
             raise TypeError(
-                f"schema must be a Pydantic BaseModel subclass, "
-                f"got {type(schema)!r}"
+                f"schema must be a Pydantic BaseModel subclass, got {type(schema)!r}"
             )
         self._schema = schema
         self._model_id = model_id
