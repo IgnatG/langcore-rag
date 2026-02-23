@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.4 (2026-02-23)
+
+### Bug Fixes
+
+- Update Python version in CI and refine langcore dependency in project files
+  ([`876e634`](https://github.com/IgnatG/langcore-rag/commit/876e6348a1f7b24df24d4374e7b239fec6ab5827))
+
+
 ## v1.0.3 (2026-02-23)
 
 ### Bug Fixes
