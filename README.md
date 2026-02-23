@@ -1,41 +1,46 @@
-# LangCore RAG — Query Parsing for Hybrid Retrieval
+# LangCore RAG
 
-A plugin for [LangCore](https://github.com/google/langcore) that parses natural-language queries into **semantic terms** (for vector search) and **structured metadata filters** (for database / index filtering), enabling hybrid RAG retrieval pipelines. Inspired by [LangStruct](https://github.com/langstruct/langstruct)'s `.query()` method.
+> Plugin for [LangCore](https://github.com/ignatg/langcore) — parse natural-language queries into semantic search terms and structured metadata filters for hybrid RAG pipelines.
 
-> **Note**: This is a third-party plugin for LangCore. For the main LangCore library, visit [google/langcore](https://github.com/google/langcore).
+[![PyPI version](https://img.shields.io/pypi/v/langcore-rag)](https://pypi.org/project/langcore-rag/)
+[![Python](https://img.shields.io/pypi/pyversions/langcore-rag)](https://pypi.org/project/langcore-rag/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
+---
+
+## Overview
+
+**langcore-rag** is a plugin for [LangCore](https://github.com/ignatg/langcore) that decomposes natural-language queries into **semantic terms** (for vector/similarity search) and **structured metadata filters** (for database or index filtering). It introspects your Pydantic schema to auto-discover filterable fields, calls an LLM to parse the query, and returns MongoDB-style filter operators ready for your retrieval backend.
+
+---
+
+## Features
+
+- **Query decomposition** — splits free-form queries into semantic search terms and structured filter conditions
+- **Pydantic schema introspection** — automatically discovers filterable fields (`int`, `float`, `str`, `bool`, `date`, `datetime`) from your schema
+- **MongoDB-style operators** — `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin` for precise filter generation
+- **Confidence scoring** — 0.0–1.0 confidence score indicating parse quality
+- **Human-readable explanation** — rationale for how the query was decomposed
+- **Sync and async** — both `parse()` and `async_parse()` methods
+- **Robust JSON parsing** — handles raw JSON, Markdown fences, and graceful fallback
+- **Any LLM backend** — uses LiteLLM for access to 100+ model providers
+- **Zero manual prompt engineering** — system prompt is auto-generated from your schema
+
+---
 
 ## Installation
 
-Install from source:
-
 ```bash
-git clone <repo-url>
-cd langcore-rag
-pip install -e .
+pip install langcore-rag
 ```
 
-Or with [uv](https://docs.astral.sh/uv/):
-
-```bash
-uv pip install -e .
-```
-
-## Features at a Glance
-
-| Feature | langcore-rag | LangStruct |
-|---|---|---|
-| **Query → semantic terms + filters** | ✅ `QueryParser.parse()` | ✅ `.query()` |
-| **Async support** | ✅ `async_parse()` | ✅ |
-| **Pydantic schema introspection** | ✅ Auto-discovers filterable fields | ✅ |
-| **MongoDB-style operators** | ✅ `$eq`, `$gte`, `$lte`, `$in`, `$nin`, etc. | ✅ |
-| **Confidence score** | ✅ 0.0 – 1.0 | ❌ |
-| **Explanation / rationale** | ✅ Human-readable | ❌ |
-| **Any LLM backend** | ✅ Via LiteLLM (100+ providers) | ✅ |
-| **Robust JSON parsing** | ✅ Raw JSON + Markdown fences + graceful fallback | ⚠️ |
+---
 
 ## Quick Start
 
 ### 1. Define a Schema
+
+Define a Pydantic model whose fields represent the filterable metadata in your document store:
 
 ```python
 from pydantic import BaseModel, Field
@@ -68,7 +73,30 @@ print(parsed.explanation)
 # → "Extracted amount ≥ 5000 and date range for March 2024."
 ```
 
-### 3. Async Usage
+### 3. Use in a RAG Pipeline
+
+Feed the parsed output into your vector store and metadata filter layer:
+
+```python
+from langcore_rag import QueryParser
+
+parser = QueryParser(schema=Invoice, model_id="gpt-4o")
+parsed = parser.parse("unpaid invoices from Acme Corp over $10,000")
+
+# Semantic search with your vector store
+vector_results = vector_store.similarity_search(
+    query=" ".join(parsed.semantic_terms),
+    k=20,
+)
+
+# Apply structured filters to narrow results
+filtered = [
+    doc for doc in vector_results
+    if apply_filters(doc.metadata, parsed.structured_filters)
+]
+```
+
+### 4. Async Usage
 
 ```python
 import asyncio
@@ -83,9 +111,32 @@ async def main():
 asyncio.run(main())
 ```
 
+---
+
+## Integration with LangCore
+
+langcore-rag uses LangCore's LLM ecosystem (via LiteLLM) for query parsing. It works with any model supported by LiteLLM:
+
+```python
+from langcore_rag import QueryParser
+
+# Use any LiteLLM-compatible model
+parser = QueryParser(
+    schema=Invoice,
+    model_id="gpt-4o",          # or "gemini/gemini-2.5-flash", "anthropic/claude-3-opus", etc.
+    temperature=0.0,             # Deterministic output
+    max_tokens=1024,
+    api_key="sk-...",            # Optional — override env var
+)
+```
+
+When deployed via **langcore-api**, the RAG parser is available as a REST endpoint (`POST /api/v1/rag/parse`) with full configuration via environment variables.
+
+---
+
 ## API Reference
 
-### `QueryParser`
+### QueryParser
 
 ```python
 QueryParser(
@@ -99,55 +150,45 @@ QueryParser(
 ```
 
 | Parameter | Type | Description |
-|---|---|---|
+|-----------|------|-------------|
 | `schema` | `type[BaseModel]` | Pydantic model whose fields define filterable metadata |
-| `model_id` | `str` | Any LiteLLM-compatible model ID (e.g. `"gpt-4o"`, `"gemini/gemini-2.5-flash"`, `"anthropic/claude-3-opus"`) |
+| `model_id` | `str` | Any LiteLLM-compatible model ID |
 | `temperature` | `float` | Sampling temperature (default `0.0` for deterministic output) |
 | `max_tokens` | `int` | Maximum tokens to generate (default `1024`) |
-| `**litellm_kwargs` | | Extra kwargs forwarded to `litellm.completion()` (e.g. `api_key`, `api_base`, `timeout`) |
+| `**litellm_kwargs` | | Extra kwargs forwarded to `litellm.completion()` (e.g., `api_key`, `api_base`, `timeout`) |
 
 #### Methods
 
 | Method | Signature | Description |
-|---|---|---|
+|--------|-----------|-------------|
 | `parse` | `(query_text: str) -> ParsedQuery` | Synchronous query parsing |
 | `async_parse` | `(query_text: str) -> ParsedQuery` | Asynchronous query parsing |
 
 #### Properties
 
 | Property | Type | Description |
-|---|---|---|
+|----------|------|-------------|
 | `schema` | `type[BaseModel]` | The Pydantic schema used for field discovery |
 | `model_id` | `str` | The LiteLLM model identifier |
-| `system_prompt` | `str` | The generated system prompt (useful for debugging) |
+| `system_prompt` | `str` | The auto-generated system prompt (useful for debugging) |
 
-### `ParsedQuery`
+### ParsedQuery
 
-An immutable (frozen) dataclass returned by `parse()` / `async_parse()`.
+An immutable (frozen) dataclass returned by `parse()` / `async_parse()`:
 
 | Field | Type | Description |
-|---|---|---|
+|-------|------|-------------|
 | `semantic_terms` | `list[str]` | Free-text terms for vector / similarity search |
 | `structured_filters` | `dict[str, Any]` | Metadata filters with MongoDB-style operators |
-| `confidence` | `float` | 0.0 – 1.0 confidence in the parse quality |
+| `confidence` | `float` | 0.0–1.0 confidence in the parse quality |
 | `explanation` | `str` | Human-readable rationale for the decomposition |
 
-## How It Works
-
-1. **Schema introspection** — `QueryParser` inspects the Pydantic model's fields to identify which ones are scalar/filterable (`int`, `float`, `str`, `bool`, `date`, `datetime`). Complex types like `list[str]` are excluded.
-
-2. **System prompt generation** — A system prompt is built listing the filterable fields with their types and descriptions, instructing the LLM to output a JSON object with `semantic_terms`, `structured_filters`, `confidence`, and `explanation`.
-
-3. **LLM call** — The query text is sent as a user message alongside the system prompt via `litellm.completion()` (sync) or `litellm.acompletion()` (async).
-
-4. **Response parsing** — The LLM's text response is parsed as JSON (handling both raw JSON and Markdown code fences). Values are type-coerced and clamped to produce a valid `ParsedQuery`.
+---
 
 ## Supported Filter Operators
 
-The parser instructs the LLM to use MongoDB-style operators:
-
 | Operator | Meaning | Example |
-|---|---|---|
+|----------|---------|---------|
 | `$eq` | Equals | `{"vendor": {"$eq": "Acme"}}` |
 | `$ne` | Not equals | `{"paid": {"$ne": true}}` |
 | `$gt` | Greater than | `{"amount": {"$gt": 1000}}` |
@@ -157,22 +198,64 @@ The parser instructs the LLM to use MongoDB-style operators:
 | `$in` | In list | `{"vendor": {"$in": ["Acme", "Globex"]}}` |
 | `$nin` | Not in list | `{"vendor": {"$nin": ["Initech"]}}` |
 
+---
+
+## How It Works
+
+1. **Schema introspection** — inspects the Pydantic model's fields to identify filterable types (`int`, `float`, `str`, `bool`, `date`, `datetime`). Complex types like `list[str]` are excluded.
+2. **System prompt generation** — builds a prompt listing filterable fields with types and descriptions, instructing the LLM to output structured JSON.
+3. **LLM call** — sends the query as a user message with the system prompt via `litellm.completion()` or `litellm.acompletion()`.
+4. **Response parsing** — parses the response as JSON (handling fences and edge cases), type-coerces values, and clamps confidence to produce a valid `ParsedQuery`.
+
+---
+
+## Composing with Other Plugins
+
+langcore-rag complements the extraction plugins. Use it to find relevant documents, then extract structured data:
+
+```python
+import langcore as lx
+from langcore_rag import QueryParser
+
+# Step 1: Parse the user's query
+parser = QueryParser(schema=Invoice, model_id="gpt-4o")
+parsed = parser.parse("invoices from Acme over $5000")
+
+# Step 2: Retrieve relevant documents from your store
+docs = document_store.search(
+    query=parsed.semantic_terms,
+    filters=parsed.structured_filters,
+)
+
+# Step 3: Extract structured entities from retrieved documents
+for doc in docs:
+    result = lx.extract(
+        text_or_documents=doc.text,
+        model_id="gemini-2.5-flash",
+        prompt_description="Extract invoice details.",
+        examples=[...],
+    )
+    print(result)
+```
+
+---
+
 ## Development
 
 ```bash
-# Install dev dependencies
-uv sync
-
-# Run tests
-uv run pytest tests/ -v
-
-# Lint
-uv run ruff check langcore_rag/ tests/
-
-# Format
-uv run ruff format langcore_rag/ tests/
+uv sync                                    # Install dependencies
+uv run pytest tests/ -v                    # Run tests
+uv run ruff check langcore_rag/ tests/     # Lint
+uv run ruff format langcore_rag/ tests/    # Format
 ```
+
+## Requirements
+
+- Python ≥ 3.12
+- `langcore`
+- `litellm` ≥ 1.81.13
+- `pydantic` ≥ 2.12.0
 
 ## License
 
-[Apache 2.0](LICENSE)
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
