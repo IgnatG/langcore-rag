@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langcore-rag"
-version = "1.0.1"
+version = "1.0.2"
 description = "RAG query parsing plugin — parse natural language queries into semantic terms and structured filters using LLMs"
 readme = "README.md"
 requires-python = ">=3.12"

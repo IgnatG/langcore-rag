@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.2 (2026-02-23)
+
+### Bug Fixes
+
+- Enhance error handling in QueryParser to return fallback ParsedQuery on invalid JSON responses
+  ([`ab1ca3f`](https://github.com/IgnatG/langcore-rag/commit/ab1ca3fafa8a6777730b3c9f3612c2735275b9c5))
+
+
 ## v1.0.1 (2026-02-23)
 
 ### Bug Fixes
