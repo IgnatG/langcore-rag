@@ -171,7 +171,8 @@ def _describe_fields(schema: type[BaseModel]) -> str:
 # Prompt construction
 # ------------------------------------------------------------------
 
-_SYSTEM_PROMPT_TEMPLATE = """\
+_SYSTEM_PROMPT_TEMPLATE = (
+    """\
 You are a query decomposition engine for a RAG (Retrieval-Augmented \
 Generation) system.
 
@@ -190,17 +191,14 @@ appropriate: $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin.
 
 ### Output format
 
-Return **only** a JSON object (no markdown fences) with exactly \
-these keys:
+Return **only** a JSON object with exactly these keys:
 
-```
 {{
   "semantic_terms": ["term1", "term2"],
   "structured_filters": {{"field": {{"$op": value}}}},
   "confidence": 0.95,
   "explanation": "short rationale"
 }}
-```
 
 Rules:
 - ``confidence`` must be a float between 0.0 and 1.0.
@@ -210,7 +208,10 @@ Rules:
 - Do **not** invent fields that are not listed above.
 - If no structured filters apply, return an empty dict for \
 ``structured_filters``.
+- Do **not** wrap the JSON in markdown code fences.
 """
+    ""
+)
 
 
 def _build_system_prompt(schema: type[BaseModel]) -> str:
@@ -356,6 +357,7 @@ class QueryParser:
         *,
         temperature: float = 0.0,
         max_tokens: int = 1024,
+        max_retries: int = 2,
         **litellm_kwargs: Any,
     ) -> None:
         """Initialize the query parser.
@@ -365,6 +367,9 @@ class QueryParser:
             model_id: LiteLLM-compatible model identifier.
             temperature: Sampling temperature (default 0.0).
             max_tokens: Max tokens to generate (default 1024).
+            max_retries: Number of retry attempts when the LLM
+                returns malformed JSON (default 2). Set to 0 to
+                disable retries.
             **litellm_kwargs: Extra args for litellm calls.
         """
         if not (isinstance(schema, type) and issubclass(schema, BaseModel)):
@@ -375,6 +380,7 @@ class QueryParser:
         self._model_id = model_id
         self._temperature = temperature
         self._max_tokens = max_tokens
+        self._max_retries = max_retries
         self._litellm_kwargs = litellm_kwargs
         self._system_prompt = _build_system_prompt(schema)
 
@@ -436,68 +442,115 @@ class QueryParser:
     def parse(self, query_text: str) -> ParsedQuery:
         """Parse a natural-language query synchronously.
 
+        Retries up to ``max_retries`` times when the LLM returns
+        unparseable JSON, falling back to a low-confidence
+        ``ParsedQuery`` if all attempts fail.
+
         Parameters:
             query_text: The user's search query.
 
         Returns:
             A :class:`ParsedQuery` with semantic terms,
             structured filters, confidence, and explanation.
-
-        Raises:
-            ValueError: If the LLM response cannot be parsed.
-            litellm.exceptions.*: On LLM API errors.
         """
         if not query_text or not query_text.strip():
             return ParsedQuery(explanation="Empty query")
 
         messages = self._build_messages(query_text)
         call_kw = self._call_kwargs()
+        last_error: Exception | None = None
 
-        logger.debug(
-            "Calling litellm.completion model=%s",
-            self._model_id,
-        )
-        response = litellm.completion(
-            messages=messages,
-            **call_kw,
-        )
+        for attempt in range(1 + self._max_retries):
+            logger.debug(
+                "Calling litellm.completion model=%s (attempt %d/%d)",
+                self._model_id,
+                attempt + 1,
+                1 + self._max_retries,
+            )
+            response = litellm.completion(
+                messages=messages,
+                **call_kw,
+            )
 
-        content: str = response.choices[0].message.content or ""
-        raw = _extract_json(content)
-        return _to_parsed_query(raw)
+            content: str = response.choices[0].message.content or ""
+            try:
+                raw = _extract_json(content)
+                return _to_parsed_query(raw)
+            except ValueError as exc:
+                last_error = exc
+                logger.warning(
+                    "Attempt %d/%d: failed to parse LLM response — %s",
+                    attempt + 1,
+                    1 + self._max_retries,
+                    exc,
+                )
+
+        # All retries exhausted — return best-effort result
+        logger.warning(
+            "All %d parse attempts failed; returning fallback ParsedQuery",
+            1 + self._max_retries,
+        )
+        return ParsedQuery(
+            semantic_terms=[query_text],
+            confidence=0.0,
+            explanation=f"Failed to parse LLM response: {last_error}",
+        )
 
     async def async_parse(self, query_text: str) -> ParsedQuery:
         """Parse a natural-language query asynchronously.
 
+        Retries up to ``max_retries`` times when the LLM returns
+        unparseable JSON, falling back to a low-confidence
+        ``ParsedQuery`` if all attempts fail.
+
         Parameters:
             query_text: The user's search query.
 
         Returns:
             A :class:`ParsedQuery` with semantic terms,
             structured filters, confidence, and explanation.
-
-        Raises:
-            ValueError: If the LLM response cannot be parsed.
-            litellm.exceptions.*: On LLM API errors.
         """
         if not query_text or not query_text.strip():
             return ParsedQuery(explanation="Empty query")
 
         messages = self._build_messages(query_text)
         call_kw = self._call_kwargs()
+        last_error: Exception | None = None
 
-        logger.debug(
-            "Calling litellm.acompletion model=%s",
-            self._model_id,
-        )
-        response = await litellm.acompletion(
-            messages=messages,
-            **call_kw,
-        )
+        for attempt in range(1 + self._max_retries):
+            logger.debug(
+                "Calling litellm.acompletion model=%s (attempt %d/%d)",
+                self._model_id,
+                attempt + 1,
+                1 + self._max_retries,
+            )
+            response = await litellm.acompletion(
+                messages=messages,
+                **call_kw,
+            )
 
-        content: str = response.choices[0].message.content or ""
-        raw = _extract_json(content)
-        return _to_parsed_query(raw)
+            content: str = response.choices[0].message.content or ""
+            try:
+                raw = _extract_json(content)
+                return _to_parsed_query(raw)
+            except ValueError as exc:
+                last_error = exc
+                logger.warning(
+                    "Attempt %d/%d: failed to parse LLM response (async) — %s",
+                    attempt + 1,
+                    1 + self._max_retries,
+                    exc,
+                )
+
+        logger.warning(
+            "All %d async parse attempts failed; returning fallback ParsedQuery",
+            1 + self._max_retries,
+        )
+        return ParsedQuery(
+            semantic_terms=[query_text],
+            confidence=0.0,
+            explanation=f"Failed to parse LLM response: {last_error}",
+        )
 
     def parse_sync_from_async(self, query_text: str) -> ParsedQuery:
         """Convenience wrapper: run ``async_parse`` from sync code.

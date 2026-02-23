@@ -440,15 +440,17 @@ class TestParseSynchronous:
         assert result.confidence == pytest.approx(0.8)
 
     @patch("langcore_rag.parser.litellm")
-    def test_parse_invalid_json_raises(self, mock_litellm: MagicMock) -> None:
-        """An unparseable LLM response raises ValueError."""
+    def test_parse_invalid_json_returns_fallback(self, mock_litellm: MagicMock) -> None:
+        """An unparseable LLM response returns a fallback ParsedQuery after retries."""
         mock_litellm.completion.return_value = _make_response(
             "I don't know how to parse that."
         )
 
         parser = QueryParser(schema=Invoice, model_id="gpt-4o")
-        with pytest.raises(ValueError, match="Could not extract"):
-            parser.parse("some query")
+        result = parser.parse("some query")
+        assert result.semantic_terms == ["some query"]
+        assert result.confidence == pytest.approx(0.0)
+        assert result.structured_filters == {}
 
     @patch("langcore_rag.parser.litellm")
     def test_parse_no_filters(self, mock_litellm: MagicMock) -> None:
@@ -541,13 +543,17 @@ class TestParseAsync:
         mock_litellm.acompletion.assert_not_awaited()
 
     @patch("langcore_rag.parser.litellm")
-    async def test_async_invalid_json_raises(self, mock_litellm: MagicMock) -> None:
-        """Async parse with bad JSON raises ValueError."""
+    async def test_async_invalid_json_returns_fallback(
+        self, mock_litellm: MagicMock
+    ) -> None:
+        """Async parse with bad JSON returns fallback ParsedQuery after retries."""
         mock_litellm.acompletion = AsyncMock(return_value=_make_response("not json"))
 
         parser = QueryParser(schema=Invoice, model_id="gpt-4o")
-        with pytest.raises(ValueError, match="Could not extract"):
-            await parser.async_parse("test")
+        result = await parser.async_parse("test")
+        assert result.semantic_terms == ["test"]
+        assert result.confidence == pytest.approx(0.0)
+        assert result.structured_filters == {}
 
 
 # ------------------------------------------------------------------
@@ -600,13 +606,14 @@ class TestEdgeCases:
         assert result.structured_filters == {"count": {"$gte": 10}}
 
     @patch("langcore_rag.parser.litellm")
-    def test_llm_returns_empty_content(self, mock_litellm: MagicMock) -> None:
-        """An empty LLM response raises ValueError."""
+    def test_llm_returns_empty_content_fallback(self, mock_litellm: MagicMock) -> None:
+        """An empty LLM response returns a fallback ParsedQuery after retries."""
         mock_litellm.completion.return_value = _make_response("")
 
         parser = QueryParser(schema=Invoice, model_id="gpt-4o")
-        with pytest.raises(ValueError):
-            parser.parse("test")
+        result = parser.parse("test")
+        assert result.semantic_terms == ["test"]
+        assert result.confidence == pytest.approx(0.0)
 
     @patch("langcore_rag.parser.litellm")
     def test_model_id_forwarded(self, mock_litellm: MagicMock) -> None:
