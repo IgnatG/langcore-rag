@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.0 (2026-02-24)
+
+### Features
+
+- Implement LRU caching in QueryParser and add related tests
+  ([`7fbc7cc`](https://github.com/IgnatG/langcore-rag/commit/7fbc7cc92b2e3504190d4fb87606cc745d661ea8))
+
+
 ## v1.1.0 (2026-02-24)
 
 ### Documentation
