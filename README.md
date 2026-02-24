@@ -145,6 +145,7 @@ QueryParser(
     *,
     temperature: float = 0.0,
     max_tokens: int = 1024,
+    max_retries: int = 2,
     **litellm_kwargs,
 )
 ```
@@ -155,6 +156,7 @@ QueryParser(
 | `model_id` | `str` | Any LiteLLM-compatible model ID |
 | `temperature` | `float` | Sampling temperature (default `0.0` for deterministic output) |
 | `max_tokens` | `int` | Maximum tokens to generate (default `1024`) |
+| `max_retries` | `int` | Number of retry attempts on malformed LLM responses (default `2`, meaning 3 total attempts) |
 | `**litellm_kwargs` | | Extra kwargs forwarded to `litellm.completion()` (e.g., `api_key`, `api_base`, `timeout`) |
 
 #### Methods
@@ -206,6 +208,8 @@ An immutable (frozen) dataclass returned by `parse()` / `async_parse()`:
 2. **System prompt generation** — builds a prompt listing filterable fields with types and descriptions, instructing the LLM to output structured JSON.
 3. **LLM call** — sends the query as a user message with the system prompt via `litellm.completion()` or `litellm.acompletion()`.
 4. **Response parsing** — parses the response as JSON (handling fences and edge cases), type-coerces values, and clamps confidence to produce a valid `ParsedQuery`.
+5. **Retry on failure** — if the LLM returns malformed JSON, the parser retries up to `max_retries` times (default 2, so 3 total attempts). Each retry is logged.
+6. **Graceful fallback** — if all retries are exhausted, returns a `ParsedQuery(semantic_terms=[query_text], structured_filters={}, confidence=0.0)` so callers always receive a usable result.
 
 ---
 
