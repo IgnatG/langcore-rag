@@ -111,6 +111,36 @@ async def main():
 asyncio.run(main())
 ```
 
+### 5. Query Caching
+
+Enable an LRU cache to skip LLM calls for repeated queries:
+
+```python
+from langcore_rag import QueryParser
+
+parser = QueryParser(schema=Invoice, model_id="gpt-4o", cache_maxsize=128)
+
+parsed1 = parser.parse("invoices over $5000")   # LLM call
+parsed2 = parser.parse("invoices over $5000")   # Cache hit — no LLM call
+
+print(parser.cache_info)   # CacheInfo(hits=1, misses=1, maxsize=128, currsize=1)
+parser.clear_cache()        # Manually clear when needed
+```
+
+### 6. Sync Bridge for Jupyter / Running Event Loops
+
+Use `parse_sync_from_async` when you need synchronous parsing inside an environment that already has a running event loop (e.g. Jupyter notebooks):
+
+```python
+from langcore_rag import QueryParser
+
+parser = QueryParser(schema=Invoice, model_id="gpt-4o")
+
+# Works inside Jupyter cells where asyncio.run() would fail
+parsed = parser.parse_sync_from_async("invoices from March 2024")
+print(parsed.semantic_terms)
+```
+
 ---
 
 ## Integration with LangCore
@@ -146,6 +176,7 @@ QueryParser(
     temperature: float = 0.0,
     max_tokens: int = 1024,
     max_retries: int = 2,
+    cache_maxsize: int | None = None,
     **litellm_kwargs,
 )
 ```
@@ -157,14 +188,17 @@ QueryParser(
 | `temperature` | `float` | Sampling temperature (default `0.0` for deterministic output) |
 | `max_tokens` | `int` | Maximum tokens to generate (default `1024`) |
 | `max_retries` | `int` | Number of retry attempts on malformed LLM responses (default `2`, meaning 3 total attempts) |
+| `cache_maxsize` | `int \| None` | When set to a positive integer, enables an LRU cache on `parse()` so identical queries skip the LLM call (default `None` — no caching) |
 | `**litellm_kwargs` | | Extra kwargs forwarded to `litellm.completion()` (e.g., `api_key`, `api_base`, `timeout`) |
 
 #### Methods
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `parse` | `(query_text: str) -> ParsedQuery` | Synchronous query parsing |
+| `parse` | `(query_text: str) -> ParsedQuery` | Synchronous query parsing (uses cache when enabled) |
 | `async_parse` | `(query_text: str) -> ParsedQuery` | Asynchronous query parsing |
+| `parse_sync_from_async` | `(query_text: str) -> ParsedQuery` | Run `async_parse` from sync code; works inside running event loops (Jupyter, Quart) |
+| `clear_cache` | `() -> None` | Clear the LRU cache (no-op when caching is disabled) |
 
 #### Properties
 
@@ -173,6 +207,7 @@ QueryParser(
 | `schema` | `type[BaseModel]` | The Pydantic schema used for field discovery |
 | `model_id` | `str` | The LiteLLM model identifier |
 | `system_prompt` | `str` | The auto-generated system prompt (useful for debugging) |
+| `cache_info` | `CacheInfo \| None` | LRU cache statistics, or `None` when caching is disabled |
 
 ### ParsedQuery
 

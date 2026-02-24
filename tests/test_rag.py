@@ -674,3 +674,148 @@ class TestEdgeCases:
         assert kw["model"] == "gpt-4o"
         assert kw["temperature"] == 0.0
         assert kw["max_tokens"] == 1024
+
+
+# ------------------------------------------------------------------
+# Tests — QueryParser caching
+# ------------------------------------------------------------------
+
+
+class TestQueryCaching:
+    """Tests for the LRU cache on parse()."""
+
+    def test_no_cache_by_default(self) -> None:
+        """Without cache_maxsize, cache_info returns None."""
+        parser = QueryParser(schema=Invoice, model_id="gpt-4o")
+        assert parser.cache_info is None
+
+    def test_cache_enabled(self) -> None:
+        """Setting cache_maxsize enables caching."""
+        parser = QueryParser(schema=Invoice, model_id="gpt-4o", cache_maxsize=16)
+        info = parser.cache_info
+        assert info is not None
+        assert info.maxsize == 16
+        assert info.hits == 0
+        assert info.misses == 0
+
+    @patch("langcore_rag.parser.litellm")
+    def test_cache_reuses_result(self, mock_litellm: MagicMock) -> None:
+        """Identical queries hit the cache instead of calling the LLM twice."""
+        mock_litellm.completion.return_value = _json_response(
+            {
+                "semantic_terms": ["test"],
+                "structured_filters": {},
+                "confidence": 0.9,
+                "explanation": "cached",
+            }
+        )
+
+        parser = QueryParser(schema=Invoice, model_id="gpt-4o", cache_maxsize=8)
+        r1 = parser.parse("test query")
+        r2 = parser.parse("test query")
+
+        assert r1 == r2
+        # LLM should only be called once
+        assert mock_litellm.completion.call_count == 1
+        assert parser.cache_info.hits == 1
+        assert parser.cache_info.misses == 1
+
+    @patch("langcore_rag.parser.litellm")
+    def test_cache_different_queries(self, mock_litellm: MagicMock) -> None:
+        """Different queries are cached separately."""
+        mock_litellm.completion.return_value = _json_response(
+            {
+                "semantic_terms": ["a"],
+                "structured_filters": {},
+                "confidence": 0.5,
+                "explanation": "",
+            }
+        )
+
+        parser = QueryParser(schema=Invoice, model_id="gpt-4o", cache_maxsize=8)
+        parser.parse("query A")
+        parser.parse("query B")
+
+        assert mock_litellm.completion.call_count == 2
+        assert parser.cache_info.misses == 2
+
+    @patch("langcore_rag.parser.litellm")
+    def test_clear_cache(self, mock_litellm: MagicMock) -> None:
+        """clear_cache() empties the cache."""
+        mock_litellm.completion.return_value = _json_response(
+            {
+                "semantic_terms": ["x"],
+                "structured_filters": {},
+                "confidence": 0.8,
+                "explanation": "",
+            }
+        )
+
+        parser = QueryParser(schema=Invoice, model_id="gpt-4o", cache_maxsize=8)
+        parser.parse("q")
+        assert parser.cache_info.misses == 1
+
+        parser.clear_cache()
+        assert parser.cache_info.misses == 0
+        assert parser.cache_info.hits == 0
+
+    def test_clear_cache_noop_when_disabled(self) -> None:
+        """clear_cache() is a no-op when caching is not enabled."""
+        parser = QueryParser(schema=Invoice, model_id="gpt-4o")
+        parser.clear_cache()  # Should not raise
+
+    @patch("langcore_rag.parser.litellm")
+    def test_empty_query_bypasses_cache(self, mock_litellm: MagicMock) -> None:
+        """Empty queries return early and don't interact with cache."""
+        parser = QueryParser(schema=Invoice, model_id="gpt-4o", cache_maxsize=8)
+        result = parser.parse("")
+        assert result.explanation == "Empty query"
+        assert parser.cache_info.misses == 0
+
+
+# ------------------------------------------------------------------
+# Tests — parse_sync_from_async
+# ------------------------------------------------------------------
+
+
+class TestParseSyncFromAsync:
+    """Tests for the sync-from-async bridge."""
+
+    @patch("langcore_rag.parser.litellm")
+    def test_sync_from_async_no_loop(self, mock_litellm: MagicMock) -> None:
+        """Works when no event loop is running."""
+        mock_litellm.acompletion = AsyncMock(
+            return_value=_json_response(
+                {
+                    "semantic_terms": ["bridge"],
+                    "structured_filters": {},
+                    "confidence": 0.7,
+                    "explanation": "sync bridge",
+                }
+            )
+        )
+
+        parser = QueryParser(schema=Invoice, model_id="gpt-4o")
+        result = parser.parse_sync_from_async("bridge test")
+        assert result.semantic_terms == ["bridge"]
+        assert result.confidence == pytest.approx(0.7)
+
+    @patch("langcore_rag.parser.litellm")
+    async def test_sync_from_async_inside_loop(self, mock_litellm: MagicMock) -> None:
+        """Works when called from within an already-running event loop."""
+        mock_litellm.acompletion = AsyncMock(
+            return_value=_json_response(
+                {
+                    "semantic_terms": ["jupyter"],
+                    "structured_filters": {},
+                    "confidence": 0.85,
+                    "explanation": "inside loop",
+                }
+            )
+        )
+
+        parser = QueryParser(schema=Invoice, model_id="gpt-4o")
+        # We are inside an async test → event loop is running
+        result = parser.parse_sync_from_async("jupyter test")
+        assert result.semantic_terms == ["jupyter"]
+        assert result.confidence == pytest.approx(0.85)

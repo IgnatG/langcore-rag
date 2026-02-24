@@ -10,6 +10,7 @@ metadata filters suitable for hybrid RAG retrieval.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -358,6 +359,7 @@ class QueryParser:
         temperature: float = 0.0,
         max_tokens: int = 1024,
         max_retries: int = 2,
+        cache_maxsize: int | None = None,
         **litellm_kwargs: Any,
     ) -> None:
         """Initialize the query parser.
@@ -370,6 +372,11 @@ class QueryParser:
             max_retries: Number of retry attempts when the LLM
                 returns malformed JSON (default 2). Set to 0 to
                 disable retries.
+            cache_maxsize: When set to a positive integer, enables
+                an LRU cache of that size for parsed queries.
+                Identical query texts return the cached result
+                without making an LLM call.  ``None`` (default)
+                disables caching.
             **litellm_kwargs: Extra args for litellm calls.
         """
         if not (isinstance(schema, type) and issubclass(schema, BaseModel)):
@@ -384,10 +391,20 @@ class QueryParser:
         self._litellm_kwargs = litellm_kwargs
         self._system_prompt = _build_system_prompt(schema)
 
+        # ---- query cache ---- #
+        self._cache_maxsize = cache_maxsize
+        if cache_maxsize is not None and cache_maxsize > 0:
+            self._parse_cached = functools.lru_cache(maxsize=cache_maxsize)(
+                self._parse_uncached,
+            )
+        else:
+            self._parse_cached = None  # type: ignore[assignment]
+
         logger.info(
-            "QueryParser initialised for schema=%s model=%s",
+            "QueryParser initialised for schema=%s model=%s cache=%s",
             schema.__name__,
             model_id,
+            cache_maxsize,
         )
 
     # ------------------------------------------------------------------
@@ -442,6 +459,9 @@ class QueryParser:
     def parse(self, query_text: str) -> ParsedQuery:
         """Parse a natural-language query synchronously.
 
+        When ``cache_maxsize`` was set in the constructor, identical
+        query texts return the cached result without an LLM call.
+
         Retries up to ``max_retries`` times when the LLM returns
         unparseable JSON, falling back to a low-confidence
         ``ParsedQuery`` if all attempts fail.
@@ -456,6 +476,12 @@ class QueryParser:
         if not query_text or not query_text.strip():
             return ParsedQuery(explanation="Empty query")
 
+        if self._parse_cached is not None:
+            return self._parse_cached(query_text)
+        return self._parse_uncached(query_text)
+
+    def _parse_uncached(self, query_text: str) -> ParsedQuery:
+        """Execute a sync parse without caching (internal)."""
         messages = self._build_messages(query_text)
         call_kw = self._call_kwargs()
         last_error: Exception | None = None
@@ -555,8 +581,13 @@ class QueryParser:
     def parse_sync_from_async(self, query_text: str) -> ParsedQuery:
         """Convenience wrapper: run ``async_parse`` from sync code.
 
-        Creates a new event loop if none is running.  Prefer
-        :meth:`parse` in purely synchronous code and
+        Works both when no event loop is running **and** inside an
+        already-running loop (e.g. Jupyter notebooks, Quart, etc.).
+        Falls back to ``asyncio.run()`` when no loop is active,
+        otherwise schedules the coroutine on the running loop via
+        a background thread.
+
+        Prefer :meth:`parse` in purely synchronous code and
         :meth:`async_parse` when already inside ``async def``.
 
         Parameters:
@@ -565,4 +596,35 @@ class QueryParser:
         Returns:
             A :class:`ParsedQuery`.
         """
-        return asyncio.run(self.async_parse(query_text))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is None:
+            # No event loop running — safe to use asyncio.run()
+            return asyncio.run(self.async_parse(query_text))
+
+        # An event loop is already running (Jupyter, Quart, etc.)
+        # Run in a background thread to avoid blocking.
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, self.async_parse(query_text))
+            return future.result()
+
+    def clear_cache(self) -> None:
+        """Clear the query cache.
+
+        No-op when caching is disabled (``cache_maxsize=None``).
+        """
+        if self._parse_cached is not None:
+            self._parse_cached.cache_clear()
+            logger.debug("Query cache cleared.")
+
+    @property
+    def cache_info(self) -> functools._CacheInfo | None:
+        """Return cache statistics, or ``None`` when caching is disabled."""
+        if self._parse_cached is not None:
+            return self._parse_cached.cache_info()
+        return None
