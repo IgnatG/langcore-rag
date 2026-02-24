@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.1.0 (2026-02-24)
+
+### Documentation
+
+- Update README for clarity and structure; enhance installation and feature sections
+  ([`6bc5fa5`](https://github.com/IgnatG/langcore-rag/commit/6bc5fa5cbd9679c4160f8b56e3be2f1a55e4a1ba))
+
+### Features
+
+- Add max_retries parameter to QueryParser for improved LLM response handling
+  ([`65ac6da`](https://github.com/IgnatG/langcore-rag/commit/65ac6da84b159d474e21e2e849059639bea9ad8e))
+
+
 ## v1.0.4 (2026-02-23)
 
 ### Bug Fixes
